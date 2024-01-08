@@ -1,5 +1,5 @@
 {
-  "pluginAlias": "ExampleHomebridgePlugin",
+  "pluginAlias": "homebridge-futurehome",
   "pluginType": "platform",
   "singular": true,
   "schema": {
