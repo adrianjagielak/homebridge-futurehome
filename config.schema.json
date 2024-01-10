@@ -1,16 +1,66 @@
 {
-  "pluginAlias": "homebridge-futurehome",
+  "pluginAlias": "FuturehomePlatform",
   "pluginType": "platform",
   "singular": true,
+  "headerDisplay": "Homebridge plugin to integrate Futurehome ([FIMP](https://github.com/futurehomeno/fimp-api)) devices into HomeKit.",
+  "footerDisplay": "If you have any suggestions, questions, or non-working devices or services please open an issue on [GitHub](https://github.com/adrianjagielak/homebridge-futurehome/issues).",
   "schema": {
     "type": "object",
     "properties": {
-      "name": {
-        "title": "Name",
-        "type": "string",
+      "options": {
+        "title": "",
+        "type": "object",
         "required": true,
-        "default": "Example Dynamic Platform"
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string",
+            "required": true
+          },
+          "password": {
+            "title": "Password",
+            "type": "string",
+            "required": true
+          },
+          "householdId": {
+            "title": "Site ID",
+            "description": "e.g. 80b4a712-e364-4c47-8fa1-fae4648cc192</br></br>If not filled the first one from your list of sites will be used.</br></br>You can find your site ID by going into the Futurehome app, exporting site info in Support > Share site info, and reading the \"id\" field in exported json file.",
+            "type": "string",
+            "required": false
+          },
+          "useBetaEnvironment": {
+            "title": "Use Futurehome beta environment",
+            "type": "boolean",
+            "required": true,
+            "default": false
+          }
+        }
       }
     }
-  }
+  },
+  "layout": [
+    {
+      "type": "flex",
+      "items": [
+        {
+          "key": "options.email",
+          "type": "email"
+        },
+        {
+          "key": "options.password",
+          "type": "password"
+        },
+        "options.householdId"
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Advanced",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "options.useBetaEnvironment"
+      ]
+    }
+  ]
 }
