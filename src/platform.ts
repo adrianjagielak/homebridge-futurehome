@@ -20,7 +20,8 @@ import {
   PROD_NIFLHEIM_HOST,
   X_FH_APP_ID,
 } from './settings';
-import {FuturehomeAccessory} from './futurehomeAccessory';
+import {FimpAccessory} from './accessories/fimpAccessory';
+import {SmarthubAccessory} from './accessories/smarthubAccessory';
 
 export class FuturehomePlatform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service = this.api.hap.Service;
@@ -29,7 +30,8 @@ export class FuturehomePlatform implements DynamicPlatformPlugin {
   // this is used to track restored cached accessories
   public readonly accessories: PlatformAccessory[] = [];
 
-  public readonly futurehomeAccessories: { [key: string]: FuturehomeAccessory } = {};
+  public readonly fimpAccessories: { [key: string]: FimpAccessory } = {};
+  public smarthubAccessory?: SmarthubAccessory;
 
   public email?: string;
   public password?: string;
@@ -39,6 +41,7 @@ export class FuturehomePlatform implements DynamicPlatformPlugin {
   public heimdallHost?: string;
   public niflheimHost?: string;
   public bifrostHost?: string;
+  public exposeSmarthubAccessory?: boolean;
 
   public deviceId?: string;
   public fhAccessTokenHash?: string;
@@ -76,7 +79,7 @@ export class FuturehomePlatform implements DynamicPlatformPlugin {
     this.password = options.password;
     this.householdId = options.householdId;
 
-    if (options.useBetaEnvironment) {
+    if (options.useBetaEnvironment ?? false) {
       this.clientId = BETA_CLIENT_ID;
       this.clientSecret = BETA_CLIENT_SECRET;
       this.heimdallHost = BETA_HEIMDALL_HOST;
@@ -90,6 +93,8 @@ export class FuturehomePlatform implements DynamicPlatformPlugin {
       this.bifrostHost = PROD_BIFROST_HOST;
     }
 
+    this.exposeSmarthubAccessory = options.exposeSmarthubAccessory ?? true;
+
     // When this event is fired it means Homebridge has restored all cached accessories from disk.
     // Dynamic Platform plugins should only register new accessories after this event was fired,
     // in order to ensure they weren't added to homebridge already.
@@ -101,7 +106,7 @@ export class FuturehomePlatform implements DynamicPlatformPlugin {
   }
 
   configureAccessory(accessory: PlatformAccessory) {
-    this.log.info(`Loading accessory from cache: ${accessory.displayName} (id: ${accessory.context.device.id})`);
+    this.log.info(`Loading accessory from cache: ${accessory.displayName}`);
 
     // Add the restored accessory to the accessories cache so we can track if it has already been registered
     this.accessories.push(accessory);
@@ -210,11 +215,12 @@ export class FuturehomePlatform implements DynamicPlatformPlugin {
     }
 
     try {
-      const householdsDevicesResponse = await axios.post(`https://${this.niflheimHost}/`,
+      const siteResponse = await axios.post(`https://${this.niflheimHost}/`,
         {
           query: `
 {
   site(id: "${this.householdId!}") {
+    name
     devices {
       id
       address
@@ -232,6 +238,10 @@ export class FuturehomePlatform implements DynamicPlatformPlugin {
       }
       metadata
     }
+    gateways {
+      id
+      online
+    }
   }
 }
 
@@ -244,28 +254,53 @@ export class FuturehomePlatform implements DynamicPlatformPlugin {
         },
       );
 
-      this.log.debug('Got devices info:', JSON.stringify(householdsDevicesResponse.data.data.site.devices));
+      const currentAccessoriesUUIDs = new Set();
 
-      let devices = householdsDevicesResponse.data.data.site.devices;
+      if (this.exposeSmarthubAccessory) {
+        const smarthubAccessoryUuid = this.api.hap.uuid.generate(`smarthub@${this.householdId!}`);
+        currentAccessoriesUUIDs.add(smarthubAccessoryUuid);
+
+        const existingSmarthubAccessory = this.accessories.find(accessory => accessory.UUID === smarthubAccessoryUuid);
+        if (existingSmarthubAccessory) {
+          this.log.info('Restoring existing smarthub accessory from cache.');
+
+          this.api.updatePlatformAccessories([existingSmarthubAccessory]);
+
+          this.smarthubAccessory = new SmarthubAccessory(this, existingSmarthubAccessory, `${siteResponse.data.data.site.name} Smarthub`, siteResponse.data.data.site.gateways[0]?.id, siteResponse.data.data.site.gateways[0]?.online === true);
+        } else {
+          this.log.info('Adding new smarthub accessory.');
+
+          const accessory = new this.api.platformAccessory(`${siteResponse.data.data.site.name} Smarthub`, smarthubAccessoryUuid);
+
+          this.smarthubAccessory = new SmarthubAccessory(this, accessory, `${siteResponse.data.data.site.name} Smarthubb`, siteResponse.data.data.site.gateways[0]?.id, siteResponse.data.data.site.gateways[0]?.online === true);
+
+          this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+        }
+      }
+
+      this.log.debug('Got devices info:', JSON.stringify(siteResponse.data.data.site.devices));
+
+      let devices = siteResponse.data.data.site.devices;
 
       // Filter out devices with no services
       devices = devices.filter(e => e.services != null && e.services.length != 0);
 
-      if (devices.length > 149) {
-        this.log.warn(`WARNING: CANNOT ADD MORE THAN 149 DEVICES! (found ${devices.length} in household)`);
-        devices = devices.slice(0, 149);
+      // 150 (HomeKit limit) minus homebridge virtual bridge device minus optional smarthub device
+      const maxNumOfDevices = this.exposeSmarthubAccessory ? 148 : 149;
+
+      if (devices.length > maxNumOfDevices) {
+        this.log.warn(`WARNING: CANNOT ADD MORE THAN ${maxNumOfDevices} DEVICES! (found ${devices.length} in household)`);
+        devices = devices.slice(0, maxNumOfDevices);
       }
 
-      // Remove accessories not present in the current devices list
-      const currentDeviceUUIDs = new Set();
       for (const device of devices) {
         const uuid = this.api.hap.uuid.generate(`${device.id}@${this.householdId!}`);
-        currentDeviceUUIDs.add(uuid);
+        currentAccessoriesUUIDs.add(uuid);
       }
       for (const accessory of this.accessories) {
-        if (!currentDeviceUUIDs.has(accessory.UUID)) {
+        if (!currentAccessoriesUUIDs.has(accessory.UUID)) {
           this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
-          this.log.info(`Removing accessory not found in site devices: ${accessory.displayName} (id: ${accessory.context.device.id})`);
+          this.log.info(`Removing accessory not found in site devices: ${accessory.displayName}`);
         }
       }
 
@@ -280,7 +315,7 @@ export class FuturehomePlatform implements DynamicPlatformPlugin {
           existingAccessory.context.device = device;
           this.api.updatePlatformAccessories([existingAccessory]);
 
-          this.futurehomeAccessories[device.id.toString()] = new FuturehomeAccessory(this, existingAccessory);
+          this.fimpAccessories[device.id.toString()] = new FimpAccessory(this, existingAccessory);
         } else {
           this.log.info(`Adding new accessory: ${device.name} (id: ${device.id})`);
 
@@ -288,7 +323,7 @@ export class FuturehomePlatform implements DynamicPlatformPlugin {
 
           accessory.context.device = device;
 
-          this.futurehomeAccessories[device.id.toString()] = new FuturehomeAccessory(this, accessory);
+          this.fimpAccessories[device.id.toString()] = new FimpAccessory(this, accessory);
 
           this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
         }
@@ -388,7 +423,7 @@ export class FuturehomePlatform implements DynamicPlatformPlugin {
             if (devices) {
               this.log.debug('Got devices state update:', msgRaw);
               for (const device of devices) {
-                this.futurehomeAccessories[device.id.toString()]?.updateDeviceState(device);
+                this.fimpAccessories[device.id.toString()]?.updateDeviceState(device);
               }
             }
           }

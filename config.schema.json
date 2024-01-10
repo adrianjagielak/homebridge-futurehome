@@ -33,6 +33,12 @@
             "type": "boolean",
             "required": true,
             "default": false
+          },
+          "exposeSmarthubAccessory": {
+            "title": "Expose Smarthub as a \"Wi-Fi Router\" accessory",
+            "type": "boolean",
+            "required": true,
+            "default": true
           }
         }
       }
@@ -59,7 +65,8 @@
       "expandable": true,
       "expanded": false,
       "items": [
-        "options.useBetaEnvironment"
+        "options.useBetaEnvironment",
+        "options.exposeSmarthubAccessory"
       ]
     }
   ]

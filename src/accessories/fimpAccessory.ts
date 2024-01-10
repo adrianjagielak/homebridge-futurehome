@@ -1,12 +1,12 @@
 import {Service, PlatformAccessory, CharacteristicValue} from 'homebridge';
 import {v4 as uuidv4} from 'uuid';
 
-import {FuturehomePlatform} from './platform';
+import {FuturehomePlatform} from '../platform';
 import {HAPConnection} from 'hap-nodejs/dist/lib/util/eventedhttp';
 import {Nullable} from 'hap-nodejs/dist/types';
 import {CharacteristicContext} from 'hap-nodejs/dist/lib/Characteristic';
 
-export class FuturehomeAccessory {
+export class FimpAccessory {
   private readonly deviceName: string;
   private readonly deviceType: string;
 
@@ -38,7 +38,7 @@ export class FuturehomeAccessory {
     const manufacturer = 'homebridge-futurehome';
     const effectiveModel = accessory.context.device.modelAlias ? accessory.context.device.modelAlias : accessory.context.device.model;
     const serialNumber = `id: ${accessory.context.device.id}, address: ${accessory.context.device.address}, type: ${this.deviceType}`;
-    const firmwareRevision = '420.69';
+    const firmwareRevision = process.env.npm_package_version ?? '1.0';
 
     // Set basic accessory information
     this.accessory.getService(this.platform.Service.AccessoryInformation)!
