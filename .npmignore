@@ -132,3 +132,7 @@ web_modules/
 .yarn/unplugged
 .yarn/build-state.yml
 .pnp.*
+
+# other stuff
+.idea/
+.DS_Store
