@@ -666,9 +666,31 @@ export class FimpAccessory {
     if (this.deviceType !== 'thermostat') {
       return false;
     }
+
     this.thermostatService = this.thermostatService || this.accessory.addService(this.platform.Service.Thermostat);
     this.thermostatService.updateCharacteristic(this.platform.Characteristic.Name, this.deviceName);
 
+    // Set up supported modes based on device capabilities
+    const supportedModes = thermostat?.props?.sup_modes || [];
+    const validHeatingCoolingStates = [this.platform.Characteristic.TargetHeatingCoolingState.OFF];
+
+    if (supportedModes.includes('heat') || supportedModes.includes('normal')) {
+      validHeatingCoolingStates.push(this.platform.Characteristic.TargetHeatingCoolingState.HEAT);
+    }
+    if (supportedModes.includes('cool')) {
+      validHeatingCoolingStates.push(this.platform.Characteristic.TargetHeatingCoolingState.COOL);
+    }
+    if (supportedModes.includes('auto')) {
+      validHeatingCoolingStates.push(this.platform.Characteristic.TargetHeatingCoolingState.AUTO);
+    }
+
+    // Set valid values for TargetHeatingCoolingState
+    this.thermostatService.getCharacteristic(this.platform.Characteristic.TargetHeatingCoolingState)
+      .setProps({
+        validValues: validHeatingCoolingStates
+      });
+
+    // Handle temperature sensor updates
     if (sensor_temp) {
       this.addUpdateCharacteristicHandler(sensor_temp.name, (serviceState) => {
         const tempAttr = this.findLatestAttr(serviceState, 'sensor');
@@ -687,136 +709,99 @@ export class FimpAccessory {
       });
     }
 
-    const thermostat_cmd_setpoint_set = thermostat?.interfaces?.find(e => e === 'cmd.setpoint.set');
-    if (thermostat_cmd_setpoint_set) {
+    // Handle temperature setpoint
+    const hasSetpointControl = thermostat?.interfaces?.includes('cmd.setpoint.set');
+    if (hasSetpointControl) {
       this.addUpdateCharacteristicHandler(thermostat.name, (serviceState) => {
         const setpointAttr = this.findLatestAttr(serviceState, 'setpoint');
-        if (setpointAttr != null) {
+        if (setpointAttr?.val?.temp != null) {
           this.thermostatService!.updateCharacteristic(
             this.platform.Characteristic.TargetTemperature,
-            setpointAttr.val.temp,
+            parseFloat(setpointAttr.val.temp)
           );
         }
       });
 
-      this.thermostatService.getCharacteristic(this.platform.Characteristic.TargetTemperature).onSet(async (value: CharacteristicValue) => {
-        const supModesOrSomething = thermostat.props.sup_setpoints || thermostat.props.sup_states || thermostat.props.sup_modes;
-
-        await this.platform.sendFimpMsg({
-          address: thermostat.address,
-          service: thermostat.name,
-          cmd: 'cmd.setpoint.set',
-          val: {
-            'temp': (value as number).toString(),
-            'type': supModesOrSomething.find(e => e === 'auto') || supModesOrSomething.find(e => e === 'heat') || 'normal',
-            'unit': 'C',
-          },
-          val_t: 'str_map',
+      this.thermostatService.getCharacteristic(this.platform.Characteristic.TargetTemperature)
+        .onSet(async (value: CharacteristicValue) => {
+          const setpointType = thermostat.props.sup_setpoints?.[0] || 'heat';
+          await this.platform.sendFimpMsg({
+            address: thermostat.address,
+            service: thermostat.name,
+            cmd: 'cmd.setpoint.set',
+            val: {
+              'temp': value.toString(),
+              'type': setpointType,
+              'unit': 'C',
+            },
+            val_t: 'str_map',
+          });
         });
-      });
     }
 
-    const thermostat_cmd_mode_set = thermostat?.interfaces?.find(e => e === 'cmd.mode.set');
-    if (thermostat_cmd_mode_set) {
+    // Handle heating/cooling mode
+    const hasModeControl = thermostat?.interfaces?.includes('cmd.mode.set');
+    if (hasModeControl) {
+      // Map FIMP modes to HomeKit states
+      const fimpToHKModeMap = {
+        'off': this.platform.Characteristic.TargetHeatingCoolingState.OFF,
+        'sleep': this.platform.Characteristic.TargetHeatingCoolingState.OFF,
+        'idle': this.platform.Characteristic.TargetHeatingCoolingState.OFF,
+        'heat': this.platform.Characteristic.TargetHeatingCoolingState.HEAT,
+        'normal': this.platform.Characteristic.TargetHeatingCoolingState.HEAT,
+        'cool': this.platform.Characteristic.TargetHeatingCoolingState.COOL,
+        'auto': this.platform.Characteristic.TargetHeatingCoolingState.AUTO,
+        'eco': this.platform.Characteristic.TargetHeatingCoolingState.AUTO,
+      };
+
+      // Map HomeKit states to FIMP modes (prefer exact matches from supported modes)
+      const getPreferredFimpMode = (hkState: number): string => {
+        switch (hkState) {
+          case this.platform.Characteristic.TargetHeatingCoolingState.OFF:
+            return supportedModes.find(m => m === 'off') || 'sleep';
+          case this.platform.Characteristic.TargetHeatingCoolingState.HEAT:
+            return supportedModes.find(m => m === 'heat') || 'normal';
+          case this.platform.Characteristic.TargetHeatingCoolingState.COOL:
+            return supportedModes.find(m => m === 'cool') || 'auto';
+          case this.platform.Characteristic.TargetHeatingCoolingState.AUTO:
+            return supportedModes.find(m => m === 'auto') || 'heat';
+          default:
+            return 'off';
+        }
+      };
+
       this.addUpdateCharacteristicHandler(thermostat.name, (serviceState) => {
-        const state = this.findLatestAttr(serviceState, 'state')?.val;
-        if (state == null) {
-          // do nothing
-        } else if (state === 'heat' || state === 'auto' || state === 'eco' || state === 'normal') {
-          this.thermostatService!.updateCharacteristic(
-            this.platform.Characteristic.CurrentHeatingCoolingState,
-            this.platform.Characteristic.CurrentHeatingCoolingState.HEAT,
-          );
-        } else {
-          this.thermostatService!.updateCharacteristic(
-            this.platform.Characteristic.CurrentHeatingCoolingState,
-            this.platform.Characteristic.CurrentHeatingCoolingState.OFF,
-          );
-        }
-
         const mode = this.findLatestAttr(serviceState, 'mode')?.val;
-        if (mode == null) {
-          // do nothing
-        } else if (mode === 'off' || mode === 'sleep' || mode === 'idle') {
+        if (mode != null) {
+          const targetState = fimpToHKModeMap[mode] ?? this.platform.Characteristic.TargetHeatingCoolingState.OFF;
           this.thermostatService!.updateCharacteristic(
             this.platform.Characteristic.TargetHeatingCoolingState,
-            this.platform.Characteristic.TargetHeatingCoolingState.OFF,
+            targetState
           );
-        } else if (mode === 'heat' || mode === 'normal') {
+
+          // Set current state based on mode - if it's not OFF, it's actively heating/cooling
+          const currentState = targetState === this.platform.Characteristic.TargetHeatingCoolingState.OFF ?
+            this.platform.Characteristic.CurrentHeatingCoolingState.OFF :
+            this.platform.Characteristic.CurrentHeatingCoolingState.HEAT;
+
           this.thermostatService!.updateCharacteristic(
-            this.platform.Characteristic.TargetHeatingCoolingState,
-            this.platform.Characteristic.TargetHeatingCoolingState.HEAT,
-          );
-        } else if (mode === 'auto') {
-          this.thermostatService!.updateCharacteristic(
-            this.platform.Characteristic.TargetHeatingCoolingState,
-            this.platform.Characteristic.TargetHeatingCoolingState.AUTO,
-          );
-        } else if (mode === 'cool') {
-          this.thermostatService!.updateCharacteristic(
-            this.platform.Characteristic.TargetHeatingCoolingState,
-            this.platform.Characteristic.TargetHeatingCoolingState.AUTO,
-          );
-        } else {
-          this.thermostatService!.updateCharacteristic(
-            this.platform.Characteristic.TargetHeatingCoolingState,
-            this.platform.Characteristic.TargetHeatingCoolingState.OFF,
+            this.platform.Characteristic.CurrentHeatingCoolingState,
+            currentState
           );
         }
       });
 
-      this.thermostatService.getCharacteristic(this.platform.Characteristic.TargetHeatingCoolingState).onSet(async (value: CharacteristicValue) => {
-        if (value === this.platform.Characteristic.TargetHeatingCoolingState.OFF) {
+      this.thermostatService.getCharacteristic(this.platform.Characteristic.TargetHeatingCoolingState)
+        .onSet(async (value: CharacteristicValue) => {
+          const fimpMode = getPreferredFimpMode(value as number);
           await this.platform.sendFimpMsg({
             address: thermostat.address,
             service: thermostat.name,
             cmd: 'cmd.mode.set',
-            val: thermostat.props.sup_modes.find(e => e === 'off') || 'sleep',
+            val: fimpMode,
             val_t: 'string',
           });
-          this.thermostatService!.updateCharacteristic(
-            this.platform.Characteristic.CurrentHeatingCoolingState,
-            this.platform.Characteristic.CurrentHeatingCoolingState.OFF,
-          );
-        } else if (value === this.platform.Characteristic.TargetHeatingCoolingState.HEAT) {
-          await this.platform.sendFimpMsg({
-            address: thermostat.address,
-            service: thermostat.name,
-            cmd: 'cmd.mode.set',
-            val: thermostat.props.sup_modes.find(e => e === 'heat') || 'normal',
-            val_t: 'string',
-          });
-          this.thermostatService!.updateCharacteristic(
-            this.platform.Characteristic.CurrentHeatingCoolingState,
-            this.platform.Characteristic.CurrentHeatingCoolingState.HEAT,
-          );
-        } else if (value === this.platform.Characteristic.TargetHeatingCoolingState.COOL) {
-          await this.platform.sendFimpMsg({
-            address: thermostat.address,
-            service: thermostat.name,
-            cmd: 'cmd.mode.set',
-            val: thermostat.props.sup_modes.find(e => e === 'cool') || thermostat.props.sup_modes.find(e => e === 'auto') || thermostat.props.sup_modes.find(e => e === 'off') || 'sleep',
-            val_t: 'string',
-          });
-          this.thermostatService!.updateCharacteristic(
-            this.platform.Characteristic.CurrentHeatingCoolingState,
-            this.platform.Characteristic.CurrentHeatingCoolingState.COOL,
-          );
-        } else if (value === this.platform.Characteristic.TargetHeatingCoolingState.AUTO) {
-          await this.platform.sendFimpMsg({
-            address: thermostat.address,
-            service: thermostat.name,
-            cmd: 'cmd.mode.set',
-            val: thermostat.props.sup_modes.find(e => e === 'auto') || 'heat',
-            val_t: 'string',
-          });
-          this.thermostatService!.updateCharacteristic(
-            this.platform.Characteristic.CurrentHeatingCoolingState,
-            this.platform.Characteristic.CurrentHeatingCoolingState.HEAT,
-          );
-        }
-
-      });
+        });
     }
 
     return true;
