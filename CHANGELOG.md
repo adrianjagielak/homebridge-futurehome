@@ -1,3 +1,7 @@
+### 0.3.0
+
+- Upgraded dependencies.
+
 ### 0.2.0
 
 - Added option to expose smarthub as a "Wi-Fi Router" HomeKit accessory (to monitor if its online) (enabled by default).
