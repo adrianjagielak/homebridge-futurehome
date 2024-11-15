@@ -1,5 +1,6 @@
 ### 0.3.0
 
+- Added support for zw_411_3_515 Z-Wave thermostat.
 - Upgraded dependencies.
 
 ### 0.2.0

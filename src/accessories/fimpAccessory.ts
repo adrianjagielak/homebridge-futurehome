@@ -628,6 +628,10 @@ export class FimpAccessory {
   }
 
   buildTemperatureSensorService(sensor_temp, sensor_wattemp) {
+    // Skip creating temperature sensor service if this is a zw_411_3_515 thermostat
+    if (this.accessory.context.device.model === 'zw_411_3_515') {
+      return false;
+    }
     if (sensor_temp == null && sensor_wattemp == null) {
       return false;
     }

@@ -48,9 +48,9 @@ export class FuturehomePlatform implements DynamicPlatformPlugin {
   public fhRefreshToken?: string;
   public householdTokenHash?: string;
   public mqtt?: MqttClient;
-
   // This is used to be 100% sure the mqtt clients that failed to initialize are shut down.
   public mqttClientToShutDown?: MqttClient;
+  public readonly deviceIdMappings: { [key: string]: string } = {};
 
   constructor(
     public readonly log: Logger,
@@ -282,6 +282,42 @@ export class FuturehomePlatform implements DynamicPlatformPlugin {
 
       let devices = siteResponse.data.data.site.devices;
 
+      // Group Z-Wave thermostat "devices" (5 per actual thermostat, with the same address) into merged devices
+      devices = devices.flatMap(device => {
+        if (device.model === 'zw_411_3_515') {
+          const channel = device.services[0].address.split('_').pop();
+          
+          if (channel === '0' || channel === '2' || channel === '3' || channel === '4') {
+            return [];
+          }
+          
+          if (channel === '1') {
+            const tempDevice = devices.find(d => 
+              d.model === 'zw_411_3_515' && 
+              d.address === device.address && 
+              d.services[0].address.endsWith('_2')
+            );
+            
+            if (tempDevice) {
+              const sensorService = tempDevice.services.find(s => s.name === 'sensor_temp');
+              if (sensorService) {
+                // Create mapping from channel 2's ID to channel 1's ID
+                this.deviceIdMappings[tempDevice.id.toString()] = device.id.toString();
+                
+                return [{
+                  ...device,
+                  services: [...device.services, sensorService]
+                }];
+              }
+            }
+            return [device];
+          }
+
+          return [device];
+        }
+        return [device];
+      });
+
       // Filter out devices with no services
       devices = devices.filter(e => e.services != null && e.services.length != 0);
 
@@ -423,7 +459,17 @@ export class FuturehomePlatform implements DynamicPlatformPlugin {
             if (devices) {
               this.log.debug('Got devices state update:', msgRaw);
               for (const device of devices) {
-                this.fimpAccessories[device.id.toString()]?.updateDeviceState(device);
+                // First try direct ID match
+                const accessory = this.fimpAccessories[device.id.toString()];
+                if (accessory) {
+                  accessory.updateDeviceState(device);
+                } else {
+                  // If no direct match, check if this ID is mapped to another accessory
+                  const mappedId = this.deviceIdMappings[device.id.toString()];
+                  if (mappedId) {
+                    this.fimpAccessories[mappedId]?.updateDeviceState(device);
+                  }
+                }
               }
             }
           }
