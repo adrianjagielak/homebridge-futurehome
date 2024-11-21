@@ -1,3 +1,7 @@
+### 0.4.0
+
+- Added funding url (https://github.com/adrianjagielak).
+
 ### 0.3.0
 
 - Added support for zw_411_3_515 Z-Wave thermostat.
