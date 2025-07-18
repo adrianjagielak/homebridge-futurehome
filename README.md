@@ -1,3 +1,8 @@
+[![Smarthome company goes bankrupt, new owner ransoms everyone's house: $5000 bounty to crack firmware!
+](https://raw.githubusercontent.com/adrianjagielak/homebridge-futurehome/refs/heads/latest/assets/louis_video_thumbnail.jpg)](https://www.youtube.com/watch?v=KNuZ3BjT7IU)
+
+#
+
 <p align="center">
    <a href="https://github.com/adrianjagielak/homebridge-futurehome"><img alt="Homebridge Verified" src="https://github.com/adrianjagielak/homebridge-futurehome/raw/latest/assets/homebridge_futurehome_logo.png" width="600px"></a>
 </p>
