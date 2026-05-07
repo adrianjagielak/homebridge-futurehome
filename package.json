@@ -1,7 +1,7 @@
 {
   "displayName": "Homebridge Futurehome",
   "name": "homebridge-futurehome",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Homebridge plugin to integrate Futurehome devices into HomeKit.",
   "license": "Apache-2.0",
   "funding": [
