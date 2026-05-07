@@ -1,3 +1,8 @@
+### 0.5.0
+
+- Added support for Homebridge 2.0.
+- Updated supported Node.js versions to 18, 20, and 22.
+
 ### 0.4.0
 
 - Added funding url (https://github.com/adrianjagielak).
